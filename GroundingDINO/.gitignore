@@ -1,3 +1,7 @@
+# IDE
+.idea/
+.vscode/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -128,79 +132,15 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# colcon
-build/
-install/
-log/
-
-# catkin_make
-devel/
-logs/
-build/
-bin/
-lib/
-
-# Editors
-.idea/
+# vscode
 .vscode/
-*~
-*\#*
-.#*
-
-# ROS
-bag_files/
-
-# Misc
-.DS_Store
-cyclonedds.xml
-
-# experimental projects, not meant to be committed
-projects/_experimental
-projects/quickstart
-
-# Local folder
-.local
-
-# ROS bags
-*.db3
-*.bag
-
-# maps
-ws/src/spot_maps/maps
-
-# wandb
-wandb/
-
-# Gitman-tracked external repos
-external
-
-# Russell
-src/logdir/
-src/pretrained_models/
-
-# Naoki's additions
-
-.DS_Store
-.idea/
-habitat-lab/
-#GroundingDINO/
-__pycache__/
-*.pyc
-
-data/
+output/
 outputs/
-tb/
-traced_model.pt
-video_dir/
-*.lock
+subs/
+logs/
 
-*tmp*
-*.mp4
-*.jpg
-*.png
-*.html
-*.json
-*.hydra
-.env copy
-CoIN-Bench
-.env*
+grounding/config/configs
+grounding/version.py
+
+vis/
+tmp/
