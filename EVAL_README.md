@@ -1,60 +1,78 @@
-# CoIN Evaluation Setup - Current Workflow
+<div align="center">
+  <h1>AIUTA-VLM-R1: Efficient Instance Navigation with<br>Knowledge Graphs and a Single 3B VLM</h1>
+  <p><b>AI Project — MVA + ENSTA Paris, 2025–2026</b></p>
 
-This document explains the current strategy and setup for running the CoIN-Bench evaluations on the ENSTA H100 SLURM cluster.
+  <p>
+    <img src="https://img.shields.io/badge/Python-3.9%2F3.10-007EC6?style=flat-square&logo=python&logoColor=white" alt="Python" />
+    <img src="https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C?style=flat-square&logo=pytorch&logoColor=white" alt="PyTorch" />
+    <img src="https://img.shields.io/badge/VLM--R1-QWEN2.5VL--3B-97CA00?style=flat-square" alt="VLM R1" />
+    <img src="https://img.shields.io/badge/ZERO--API--COST-LOCAL%20ONLY-8A2BE2?style=flat-square" alt="Zero API Cost" />
+  </p>
+</div>
 
-## Execution Method
+<hr />
 
-The evaluation is executed by submitting the SLURM job file **`run_coin_eval_final.sh`**:
+## 🚀 Execution Method
+
+The evaluation is seamlessly executed by submitting the unified SLURM job file on the ENSTA H100 cluster:
 
 ```bash
 sbatch run_coin_eval_final.sh
 ```
 
-## Architecture: Why 4 GPUs and 3 Python Environments?
+<br>
 
-The evaluation pipeline includes a variety of heavy Vision-Language Models (VLMs) and Large Language Models (LLMs), as well as complex older simulators (Habitat). These components have conflicting Python dependencies and require substantial VRAM, so we distribute them across 4 isolated GPUs and 3 separate conda environments.
+## 🧩 Architecture: Why 4 GPUs and 3 Python Environments?
 
-### The Three Conda Environments
+The evaluation pipeline orchestrated in this project connects a variety of heavy Vision-Language Models (VLMs), Large Language Models (LLMs), and complex simulators (Habitat). To gracefully handle conflicting Python dependencies and massive VRAM requirements, the pipeline distributes these workloads across **4 isolated GPUs** and **3 custom conda environments**.
+
+### 🌿 The Three Conda Environments
 
 1. **`coin_vllm_clone` (Python 3.9)**
-   - Used for the Habitat simulation (`vlfm.run`) and the general Vision-Language-Navigation codebase.
-   - Used for the Detection Stack (GroundingDINO, BLIP2, SAM).
-   - *Reason*: Habitat requires an older Python setup, and compatibility is strictly tied to Python 3.9.
+   - **Scope:** Runs the Habitat simulation (`vlfm.run`), the core Vision-Language-Navigation (VLN) controller, and the entire **Detection Stack** (GroundingDINO, BLIP2, Mobile SAM).
+   - **Reasoning:** Habitat relies on legacy dependencies and its compatibility is strictly mapped to Python 3.9.
 
 2. **`vllm_py310` (Python 3.10)**
-   - Used exclusively to run the vLLM server.
-   - *Reason*: Modern vLLM setups require Python 3.10+ and specific PyTorch/CUDA extensions that conflict with the Habitat codebase.
+   - **Scope:** Dedicated solely to hosting the ultra-fast **vLLM Inference server**.
+   - **Reasoning:** Modern vLLM optimization requires Python 3.10+ along with specialized PyTorch/CUDA extensions that conflict directly with our legacy Habitat configuration.
 
 3. **`llava_next_py310` (Python 3.10)**
-   - Used exclusively for the LLaVA-NeXT model.
-   - *Reason*: LLaVA-NeXT strictly requires `transformers >= 4.45`, which causes dependency conflicts with other models in the main `vllm` or `coin_vllm` environments.
+   - **Scope:** Used exclusively for invoking the **LLaVA-NeXT** model integration.
+   - **Reasoning:** LLaVA-NeXT inherently requires `transformers >= 4.45`, preventing it from residing in the older `coin_vllm` stack.
 
-### GPU Allocation Strategy
+<br>
 
-The script (`run_coin_eval_final.sh`) partitions the workload to avoid Out-Of-Memory (OOM) errors and environment conflicts across the 4 allocated GPUs:
+### 💻 GPU Allocation Strategy
 
-| Resource | Service / Responsibility | Environment Used | Model Details |
-| :--- | :--- | :--- | :--- |
-| **GPU 0** | **Detection Stack** | `coin_vllm_clone` (Py 3.9) | GroundingDINO, BLIP2-ITM, Mobile SAM |
-| **GPU 1** | **Vision-Language Model** | `llava_next_py310` (Py 3.10) | LLaVA-NeXT |
-| **GPU 2** | **CoIN Evaluation (Habitat)** | `coin_vllm_clone` (Py 3.9) | Simulator, `vlfm.run` logic |
-| **GPU 3** | **LLM Server (vLLM)** | `vllm_py310` (Py 3.10) | Local LLM e.g. `gpt-oss-20b` (bfloat16) |
+To completely bypass Out-Of-Memory (OOM) errors and avoid cross-library contamination, `run_coin_eval_final.sh` spatially partitions the inference engines optimally across 4 available GPUs:
 
-## Pipeline Execution Details
+| Resource | Service / Component | Environment Engine | Active Models |
+| :---: | :--- | :--- | :--- |
+| **GPU 0** | 🎯 **Detection Stack** | `coin_vllm_clone` (Py 3.9) | GroundingDINO, BLIP2-ITM, Mobile SAM |
+| **GPU 1** | 👁️ **Vision Analyzer** | `llava_next_py310` (Py 3.10) | LLaVA-NeXT |
+| **GPU 2** | 🕹️ **Simulation & Logic** | `coin_vllm_clone` (Py 3.9) | Habitat Simulator, `vlfm.run` evaluation |
+| **GPU 3** | 🧠 **Local LLM Server** | `vllm_py310` (Py 3.10) | Local LLM Engine (e.g., `gpt-oss-20b` via bfloat16) |
 
-When `sbatch run_coin_eval_final.sh` is submitted, it does the following:
+<br>
 
-1. **Spin up Background Servers**: 
-   - Starts the vLLM Server on GPU 3 (port `8000`).
-   - Starts GroundingDINO, BLIP2, and SAM in parallel on GPU 0 (ports `12181`, `12182`, `12183`).
-   - Starts LLaVA-NeXT on GPU 1 (port `12189`).
-2. **Health Checks**: 
-   - Uses `curl` to poll the `/v1/models` endpoint of the vLLM server to ensure it is healthy and the loaded model matches the expected `LOCAL_LLM_MODEL_NAME`.
-   - Uses `nc -z` to poll the detection and VLM ports until they are fully available.
-3. **Execution**:
-   - Once all servers are marked healthy, it kicks off `python -m vlfm.run` on GPU 2.
-   - *Note*: Currently, it is executing a small sanity check (`habitat_baselines.test_episode_count=10`).
-4. **Cleanup**: 
-   - A bash `trap` is defined so that if the job crashes, completes, or gets canceled, all background PIDs (vLLM, SAM, BLIP, GDINO, LLaVA) are properly killed avoiding "zombie" processes taking up node memory.
+## ⚙️ Pipeline Execution Lifecycle
 
-Logs for every server component are heavily compartmentalized and are tracked inside the `logs/` directory. Error output for the entire job is bound to `logs/coin_eval_<JOB_ID>.err/out`.
+When `sbatch run_coin_eval_final.sh` enters the queue and initializes, it strictly adheres to the following sequence:
+
+1. **Background Server Orchestration 🌍**
+   - Boots the **vLLM Server** on GPU 3 (`port 8000`).
+   - Concurrently spawns **GroundingDINO**, **BLIP2**, and **Mobile SAM** onto GPU 0 (`ports 12181, 12182, 12183`).
+   - Deploys **LLaVA-NeXT** mapping to GPU 1 (`port 12189`).
+   
+2. **Automated Health Readiness 🩺**
+   - Implements automated `curl` polling towards vLLM's `/v1/models` endpoint checking model-ID consistency.
+   - Triggers rapid `nc -z` network socket pings continuously verifying detection and VLM availability before starting the simulator.
+   
+3. **Core Evaluation Loop 🏃‍♂️**
+   - Once total system health is `✓ OK`, it seamlessly delegates simulation oversight to `python -m vlfm.run` on GPU 2.
+   - *Active Job Note:* Defaults to executing a 10-episode sanity check (`habitat_baselines.test_episode_count=10`).
+   
+4. **Guaranteed Graceful Cleanup 🧹**
+   - Employs a bash `trap` safety net. Whether the execution crashes, times out, or successfully concludes, all background processes (`LLM_PID`, `GDINO_PID`, `SAM_PID`, etc.) are rigorously terminated, preventing ghost processes from hoarding node memory.
+
+> 📝 **Logging:** Total operational chatter is thoroughly isolated. Background daemon logs are routed independently within `logs/`, while the main unified runtime errors map dynamically to `logs/coin_eval_<SLURM_JOB_ID>.err/out`.
