@@ -1,5 +1,6 @@
 # Copyright (c) 2023 Boston Dynamics AI Institute LLC. All rights reserved.
 
+import os
 from typing import Dict, Union
 import cv2
 import numpy as np
@@ -39,6 +40,7 @@ class ObjectPointCloudMap:
         self.vlm_agent_brain: VLM_History = vlm_agent_brain
         self.llm_agent_brain: LLM_History = llm_agent_brain
         self.vlm_oracle: VLMOracle = vlm_oracle
+        self._nav_debug = os.environ.get("NAV_DEBUG", "0") == "1"
 
 
 
@@ -143,6 +145,17 @@ class ObjectPointCloudMap:
             # if it is the target goal, we update it's position to better docking
             if object_name in self.clouds and not too_offset(object_mask):
                 if self.is_detection_seen(global_cloud, object_name, potential_target=True):
+                    if self._nav_debug:
+                        old_closest = self._get_closest_point(self.clouds[object_name], curr_position)
+                        new_closest = self._get_closest_point(global_cloud, curr_position)
+                        old_dist = float(np.linalg.norm(old_closest[:3] - curr_position))
+                        new_dist = float(np.linalg.norm(new_closest[:3] - curr_position))
+                        print(
+                            Fore.LIGHTCYAN_EX
+                            + f"[NAV_DEBUG] step={total_num_steps} target_update "
+                            + f"target={object_name.split('|')[0]} "
+                            + f"old_dist={old_dist:.3f}m new_dist={new_dist:.3f}m"
+                        )
                     print(Fore.GREEN + "[INFO] Updating target position")
                     self.clouds[object_name] = global_cloud
             return False
@@ -290,6 +303,14 @@ class ObjectPointCloudMap:
             self.clouds[object_name] = np.concatenate((self.clouds[object_name], global_cloud), axis=0)
         else:
             self.clouds[object_name] = global_cloud
+        if self._nav_debug:
+            best_point = self._get_closest_point(self.clouds[object_name], curr_position)
+            best_dist = float(np.linalg.norm(best_point[:3] - curr_position))
+            print(
+                Fore.LIGHTCYAN_EX
+                + f"[NAV_DEBUG] step={total_num_steps} target_create "
+                + f"target={object_name.split('|')[0]} dist={best_dist:.3f}m"
+            )
         return True
 
     def is_detection_seen(self, new_detection, target_class, potential_target=False):
@@ -303,6 +324,14 @@ class ObjectPointCloudMap:
             distances = np.linalg.norm(target_cloud[:, :3] - new_detection[:, :3][:, None], axis=2)
             seen_threshold = 1.5
             condition = np.any(distances < seen_threshold)
+            if self._nav_debug and condition:
+                min_distance = float(np.min(distances))
+                print(
+                    Fore.LIGHTCYAN_EX
+                    + f"[NAV_DEBUG] assoc_seen target={target_class.split('|')[0]} "
+                    + f"potential_target={potential_target} min_dist={min_distance:.3f}m "
+                    + f"threshold={seen_threshold:.3f}m"
+                )
 
             if condition:
                 return True

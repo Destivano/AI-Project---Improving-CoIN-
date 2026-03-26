@@ -40,6 +40,7 @@ habitat:
           
 
   simulator:
+    scene_dataset: data/scene_datasets/hm3d/hm3d.scene_dataset_config.json
     turn_angle: 30
     tilt_angle: 30
     action_space_config: "v1"
@@ -98,6 +99,7 @@ habitat_baselines:
 
     policy:
       name: "HabitatITMPolicyV2"
+      pointnav_stop_radius: 0.25
 
     ppo:
       # ppo params

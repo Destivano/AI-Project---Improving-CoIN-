@@ -51,6 +51,18 @@ class BaseObjectNavPolicy(BasePolicy):
     _non_coco_caption = ""
     _load_yolo: bool = False
 
+    @staticmethod
+    def _action_meaning(action_value: Union[np.ndarray, float, int, np.generic]) -> str:
+        if isinstance(action_value, np.ndarray):
+            return f"CONTINUOUS({np.array2string(action_value, precision=3)})"
+        action_id = int(action_value)
+        return {
+            0: "STOP",
+            1: "MOVE_FORWARD",
+            2: "TURN_LEFT",
+            3: "TURN_RIGHT",
+        }.get(action_id, f"ACTION_{action_id}")
+
     def __init__(
         self,
         pointnav_policy_path: str,
@@ -80,16 +92,23 @@ class BaseObjectNavPolicy(BasePolicy):
         ##### LLM and VLM
         vlm_connector = LLaVA.LLavaNextClient(port=int(os.environ.get("LLava_PORT", "12189")))
 
-        # see vlfm/vlm/openai_llm.py for more info.
-        test_with_groq = True
-        if test_with_groq:
+        # LLM configuration: use local vLLM server or Groq API
+        # Set USE_LOCAL_LLM=true to use local model, false for Groq
+        use_local_llm = os.environ.get("USE_LOCAL_LLM", "true").lower() == "true"
+        
+        if use_local_llm:
+            # Local vLLM server with Qwen2.5-Coder-32B-Instruct or similar
+            local_llm_port = os.environ.get("LOCAL_LLM_PORT", "8000")
+            llm_client_params = {
+                "model": os.environ.get("LOCAL_LLM_MODEL_NAME", "Qwen2.5-Coder-32B-Instruct"),
+                "base_url": f"http://localhost:{local_llm_port}/v1",
+                "api_key": "not-needed",  # vLLM doesn't require API key
+            }
+        else:
+            # Groq API (requires COIN_LLM_CLIENT_KEY env var)
             llm_client_params = {
                 "model": "llama-3.3-70b-versatile",
                 "base_url": "https://api.groq.com/openai/v1",
-            }
-        else:
-            llm_client_params = {
-                "model": "gpt-4o",
             }
         LLM_CONNECTOR = OpenAILLMClient(llm_client_params)
 
@@ -134,6 +153,8 @@ class BaseObjectNavPolicy(BasePolicy):
         print(Fore.YELLOW + "[INFO]: Non COCO Obj detector thresh: " + str(non_coco_threshold))
         self.folder_for_backup = None
         self.ep_id = None
+        self._nav_debug = os.environ.get("NAV_DEBUG", "0") == "1"
+        self._prev_mode: Union[str, None] = None
 
     def set_folder_for_data_backup(self, folder) -> None:
         self.folder_for_backup = folder
@@ -155,6 +176,7 @@ class BaseObjectNavPolicy(BasePolicy):
         self.VLM_ORACLE.reset()
         self._did_reset = True
         self.cached_room_likelihoods = None
+        self._prev_mode = None
 
     def act(
         self,
@@ -205,7 +227,7 @@ class BaseObjectNavPolicy(BasePolicy):
         robot_xy = self._observations_cache["robot_xy"]
         goal = self._get_target_object_location(robot_xy)
 
-        if self._num_steps == 400:
+        if self._num_steps == 480:
             self._object_map.get_to_the_best_one(object_name=self._target_object.split("|")[0])
 
         if not self._done_initializing:  # Initialize
@@ -218,11 +240,34 @@ class BaseObjectNavPolicy(BasePolicy):
             mode = "navigate"
             pointnav_action = self._pointnav(goal[:2], stop=True)
 
+        if self._nav_debug and mode == "navigate" and self._prev_mode != "navigate" and goal is not None:
+            goal_xy = goal[:2]
+            print(
+                Fore.LIGHTCYAN_EX
+                + f"[NAV_DEBUG] step={self._num_steps} mode_switch=navigate "
+                + f"goal_xy=[{goal_xy[0]:.3f}, {goal_xy[1]:.3f}]"
+            )
+
         action_numpy = pointnav_action.detach().cpu().numpy()[0]
         if len(action_numpy) == 1:
             action_numpy = action_numpy[0]
         print(f"Step: {self._num_steps} | Mode: {mode} | Action: {action_numpy}")
+        if self._nav_debug and mode == "navigate" and goal is not None:
+            goal_xy = goal[:2]
+            dist_to_goal = float(np.linalg.norm(goal_xy - robot_xy))
+            action_meaning = self._action_meaning(action_numpy)
+            if np.isscalar(action_numpy):
+                action_value = str(int(action_numpy))
+            else:
+                action_value = np.array2string(np.asarray(action_numpy), precision=3)
+            print(
+                Fore.LIGHTCYAN_EX
+                + f"[NAV_DEBUG] step={self._num_steps} navigate_dist={dist_to_goal:.3f}m "
+                + f"action={action_value}({action_meaning})"
+            )
         self._policy_info.update(self._get_policy_info(detections[0]))
+        self._prev_mode = mode
+
         self._num_steps += 1
 
         self._observations_cache = {}
@@ -347,6 +392,14 @@ class BaseObjectNavPolicy(BasePolicy):
         robot_xy = self._observations_cache["robot_xy"]
         heading = self._observations_cache["robot_heading"]
         rho, theta = rho_theta(robot_xy, heading, goal)
+        if self._nav_debug and stop:
+            should_stop = rho < self._pointnav_stop_radius
+            print(
+                Fore.LIGHTCYAN_EX
+                + f"[NAV_DEBUG] step={self._num_steps} stop_check "
+                + f"rho={rho:.3f}m threshold={self._pointnav_stop_radius:.3f}m "
+                + f"result={should_stop}"
+            )
         rho_theta_tensor = torch.tensor([[rho, theta]], device="cuda", dtype=torch.float32)
         obs_pointnav = {
             "depth": image_resize(

@@ -33,7 +33,8 @@ class LLM_History:
 
     def get_best_object_based_on_score(self):
         """
-        Get the object with the highest score
+        Get the object with the highest score. 
+        Only return the object if it represents a verified match (score >= 7).
         """
         best_object = None
         best_score = -1
@@ -41,6 +42,11 @@ class LLM_History:
             if object_informations["object_stop_score"] > best_score:
                 best_object = object_informations["object_map_position"]
                 best_score = object_informations["object_stop_score"]
+                
+        if best_score < 7:
+            # Prevent falling back to ambiguous distractors (score 5-6) which causes false_positives
+            return None
+            
         return best_object
 
     def store_information_about_detected_object(

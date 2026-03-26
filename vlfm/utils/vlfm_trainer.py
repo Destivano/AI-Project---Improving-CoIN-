@@ -51,6 +51,19 @@ init_colorama()
 class VLFMTrainer(PPOTrainer):
     envs: VectorEnv
 
+    def load_checkpoint(self, checkpoint_path: str, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+        """Load checkpoints with full pickle for trusted local files.
+
+        PyTorch >=2.6 defaults torch.load(weights_only=True), which breaks
+        Habitat checkpoints that contain OmegaConf objects.
+        """
+        expanded_path = os.path.expanduser(checkpoint_path)
+        is_trusted_local_ckpt = os.path.isfile(expanded_path)
+        if is_trusted_local_ckpt and "weights_only" not in kwargs:
+            kwargs["weights_only"] = False
+
+        return super().load_checkpoint(expanded_path, *args, **kwargs)
+
     def _eval_checkpoint(
         self,
         checkpoint_path: str,
@@ -377,7 +390,9 @@ class VLFMTrainer(PPOTrainer):
 
         aggregated_stats = {}
         for stat_key in next(iter(stats_episodes.values())).keys():
-            aggregated_stats[stat_key] = np.mean([v[stat_key] for v in stats_episodes.values()])
+            valid_values = [v[stat_key] for v in stats_episodes.values() if stat_key in v]
+            if valid_values:
+                aggregated_stats[stat_key] = np.mean(valid_values)
 
         for k, v in aggregated_stats.items():
             logger.info(f"Average episode {k}: {v:.4f}")

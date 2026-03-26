@@ -6,12 +6,6 @@ import torch
 from PIL import Image
 import random
 from .server_wrapper import ServerMixin, host_model, send_request, str_to_image
-
-from transformers import (
-    LlavaNextProcessor,
-    LlavaNextForConditionalGeneration,
-    BitsAndBytesConfig,
-)
 from colorama import Fore
 from colorama import init as init_colorama
 
@@ -36,6 +30,12 @@ class LLavaNext:
         max_new_tokens=500,
         device: Optional[Any] = None,
     ) -> None:
+        from transformers import (
+            BitsAndBytesConfig,
+            LlavaNextForConditionalGeneration,
+            LlavaNextProcessor,
+        )
+
         seed_everything(42)
         self.max_new_tokens = max_new_tokens
         self.processor = LlavaNextProcessor.from_pretrained(model_type)
@@ -48,12 +48,7 @@ class LLavaNext:
             model_type,
             torch_dtype=torch.float16,
             low_cpu_mem_usage=True,
-            device_map={
-                "image_newline": 0,
-                "multi_modal_projector": 0,
-                "vision_tower": 0,  # Place the vision tower on GPU 0
-                "language_model": 1,  # Place the language model on GPU 1
-            },
+            device_map={"": 0},
             # quantization_config=quantization_config,
         )
 
@@ -90,7 +85,7 @@ class LLavaNext:
         ]
 
         prompt = self.processor.apply_chat_template(conversation, add_generation_prompt=True)
-        inputs = self.processor(prompt, image, return_tensors="pt").to("cuda:0")
+        inputs = self.processor(images=image, text=prompt, return_tensors="pt").to("cuda:0")
 
         # autoregressively complete prompt
         if not return_token_likelihood:

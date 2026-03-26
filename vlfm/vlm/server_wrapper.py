@@ -116,7 +116,14 @@ def send_request(url: str, **kwargs: Any) -> dict:
                 raise e
                 # exit()
             else:
-                print(f"Error: {e}. Retrying in 40 seconds...")
+                print(
+                    "Error: Request failed. "
+                    f"url={url} "
+                    f"attempt={attempt + 1}/10 "
+                    f"exception_type={type(e).__name__} "
+                    f"exception_message={e}. "
+                    "Retrying in 40 seconds..."
+                )
                 # time.sleep(1)
                 time.sleep(40)
 
@@ -158,6 +165,8 @@ def _send_request(url: str, **kwargs: Any) -> dict:
             except FileNotFoundError:
                 pass
 
+        request_timeout = kwargs.pop("request_timeout", None)
+
         # Create a payload dict which is a clone of kwargs but all np.array values are
         # converted to strings
         payload = {}
@@ -172,14 +181,15 @@ def _send_request(url: str, **kwargs: Any) -> dict:
 
         start_time = time.time()
         
-        slow_request = 'request_timeout' in kwargs # when calling LLM, we increse the amount of time
-        if slow_request:
-            request_timeout_raise_exception = 50 # in second 
-            timeout = 30
-            # print("this is a slow request")
+        if request_timeout is not None:
+            try:
+                timeout = max(float(request_timeout), 30.0)
+            except (TypeError, ValueError):
+                timeout = 30.0
+            request_timeout_raise_exception = max(timeout + 20.0, 50.0)
         else:
-            timeout = 1
-            request_timeout_raise_exception = 20
+            timeout = 1.0
+            request_timeout_raise_exception = 20.0
         while True:
             try:
                 resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
@@ -190,7 +200,7 @@ def _send_request(url: str, **kwargs: Any) -> dict:
                     print("Server is busy, retrying after 5 seconds...")
                     time.sleep(5)
                 else:
-                    raise Exception("Request failed")
+                    raise Exception(f"Request failed with status={resp.status_code} from url={url}")
             except (
                 requests.exceptions.Timeout,
                 requests.exceptions.RequestException,
@@ -200,7 +210,7 @@ def _send_request(url: str, **kwargs: Any) -> dict:
                 print("HEADERS", headers)
                 print("timeout", timeout)
                 if time.time() - start_time > request_timeout_raise_exception:
-                    raise Exception("Request timed out after 20 seconds")
+                    raise Exception(f"Request timed out after {request_timeout_raise_exception:.0f} seconds")
 
         try:
             # Delete the lock file

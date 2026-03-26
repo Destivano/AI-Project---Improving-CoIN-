@@ -1,6 +1,7 @@
 # Copyright (c) 2023 Boston Dynamics AI Institute LLC. All rights reserved.
 
 from typing import Optional
+import os
 
 import numpy as np
 import torch
@@ -30,6 +31,7 @@ class GroundingDINO:
         text_threshold: float = 0.25,
         device: torch.device = torch.device("cuda"),
     ):
+        self.device = device
         self.model = load_model(model_config_path=config_path, model_checkpoint_path=weights_path).to(device)
         self.caption = caption
         self.box_threshold = box_threshold
@@ -64,6 +66,7 @@ class GroundingDINO:
                 caption=caption_to_use,
                 box_threshold=self.box_threshold,
                 text_threshold=self.text_threshold,
+                device=str(self.device),
             )
         detections = ObjectDetections(boxes, logits, phrases, image_source=image)
 
@@ -77,9 +80,23 @@ class GroundingDINO:
 class GroundingDINOClient:
     def __init__(self, port: int = 12181):
         self.url = f"http://localhost:{port}/gdino"
+        # Keep GDINO timeout higher because detection inference can be slow.
+        self.request_timeout_s = float(os.environ.get("GDINO_REQUEST_TIMEOUT", "60"))
 
     def predict(self, image_numpy: np.ndarray, caption: Optional[str] = "") -> ObjectDetections:
-        response = send_request(self.url, image=image_numpy, caption=caption)
+        print(
+            "[GDINOClient] "
+            f"url={self.url} "
+            f"timeout={self.request_timeout_s}s "
+            f"caption={caption} "
+            f"image_shape={image_numpy.shape}"
+        )
+        response = send_request(
+            self.url,
+            image=image_numpy,
+            caption=caption,
+            request_timeout=self.request_timeout_s,
+        )
         detections = ObjectDetections.from_json(response, image_source=image_numpy)
 
         return detections
